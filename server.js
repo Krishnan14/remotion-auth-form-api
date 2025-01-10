@@ -13,75 +13,67 @@ app.use(express.json());
 // Enable CORS for all origins
 app.use(cors());
 
-// Directory to save uploaded files (Use an absolute path)
-const imageUploadDir = path.join(__dirname, "uploads", "images"); // Ensure this directory exists
-const uploadDir = path.join(__dirname, "uploads"); // Ensure this directory exists
-if (!fs.existsSync(imageUploadDir)) {
-  fs.mkdirSync(imageUploadDir, { recursive: true });
+// Directory to save uploaded files
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
-
-// Function to clear the uploads directory
-const clearUploadsDirectory = () => {
-  const files = fs.readdirSync(imageUploadDir);
-  files.forEach((file) => {
-    const filePath = path.join(imageUploadDir, file);
-    if (fs.lstatSync(filePath).isFile()) {
-      fs.unlinkSync(filePath); // Delete the file
-    }
-  });
-};
 
 // Configure Multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, imageUploadDir);
+    // Create a unique folder for the submission
+    const uniqueFolder = req.uniqueFolder;
+    cb(null, uniqueFolder);
   },
   filename: (req, file, cb) => {
-    // Generate a timestamp
-    const timestamp = Date.now();
-
-    const extension = path.extname(file.originalname);
-
-    // Create the new filename
-    const newFileName = `${timestamp}${extension}`;
-    cb(null, newFileName);
+    // Generate a filename using timestamp and file extension
+    const timestamp = Date.now(); // Use current timestamp
+    const extension = path.extname(file.originalname); // Extract file extension
+    cb(null, `${timestamp}${extension}`);
   },
 });
 const upload = multer({ storage });
 
+// Middleware to create a unique folder for each submission
+app.use((req, res, next) => {
+  const uniqueFolderName = Date.now().toString(); // Use timestamp for uniqueness
+  req.uniqueFolder = path.join(uploadDir, uniqueFolderName);
+
+  if (!fs.existsSync(req.uniqueFolder)) {
+    fs.mkdirSync(req.uniqueFolder, { recursive: true });
+  }
+
+  next();
+});
+
 // Upload endpoint
-app.post("/upload", (req, res) => {
+app.post("/upload", upload.array("file"), (req, res) => {
   try {
-    // Clear previous files in the uploads directory before uploading new ones
-    clearUploadsDirectory();
+    const videoTitle = req.body.video_title;
+    const theme = req.body.theme;
+    const uniqueFolder = req.uniqueFolder;
 
-    // Handle file uploads
-    upload.array("file")(req, res, (err) => {
-      if (err) {
-        console.error("Error during file upload:", err);
-        return res.status(500).json({ error: "File upload failed" });
-      }
+    // Process uploaded files
+    const files = req.files.map((file) => ({
+      originalName: file.originalname,
+      savedName: file.filename,
+      path: path.join(uniqueFolder, file.filename),
+    }));
 
-      const videoTitle = req.body.video_title;
-      const theme = req.body.theme;
+    // Save metadata to a JSON file in the unique folder
+    const metadata = {
+      video_title: videoTitle,
+      theme: theme,
+      files,
+    };
+    const metadataPath = path.join(uniqueFolder, "metadata.json");
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
-      // Process uploaded files
-      req.files.forEach((file) => {
-        console.log(`File uploaded: ${file.originalname}`);
-      });
-
-      // Metadata processing (Optional)
-      const metadata = {
-        video_title: videoTitle,
-        theme: theme,
-        files: req.files.map((file) => file.originalname),
-      };
-
-      // Save metadata to a JSON file in the uploads directory
-      const metadataPath = path.join(uploadDir, "metadata.json");
-      fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-
-      res.json({ message: "Files uploaded successfully!", metadata });
+    res.json({
+      message: "Files uploaded successfully!",
+      metadata,
+      folder: uniqueFolder,
     });
   } catch (error) {
     console.error("Error during file upload:", error);

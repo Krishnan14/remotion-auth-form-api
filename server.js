@@ -39,6 +39,7 @@ const upload = multer({ storage });
 app.use((req, res, next) => {
   const uniqueFolderName = Date.now().toString(); // Use timestamp for uniqueness
   req.uniqueFolder = path.join(uploadDir, uniqueFolderName);
+  req.folder = uniqueFolderName;
 
   if (!fs.existsSync(req.uniqueFolder)) {
     fs.mkdirSync(req.uniqueFolder, { recursive: true });
@@ -53,11 +54,13 @@ app.post("/upload", upload.array("file"), (req, res) => {
     const videoTitle = req.body.video_title;
     const theme = req.body.theme;
     const uniqueFolder = req.uniqueFolder;
+    const folder = req.folder;
+
+    console.log(folder, "folder");
 
     // Process uploaded files
     const files = req.files.map((file) => ({
-      originalName: file.originalname,
-      savedName: file.filename,
+      filename: file.filename,
       path: path.join(uniqueFolder, file.filename),
     }));
 
@@ -75,6 +78,8 @@ app.post("/upload", upload.array("file"), (req, res) => {
       metadata,
       folder: uniqueFolder,
     });
+
+    console.log(uniqueFolder);
   } catch (error) {
     console.error("Error during file upload:", error);
     res.status(500).json({ error: "Internal Server Error" });
